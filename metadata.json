@@ -1,0 +1,5 @@
+{
+  "name": "ScamGuard",
+  "description": "Verifica SMS e email per individuare numeri a sovrapprezzo, call center sospetti e link malevoli.",
+  "requestFramePermissions": []
+}
