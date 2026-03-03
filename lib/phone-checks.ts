@@ -45,6 +45,26 @@ export interface PremiumDbStats {
   }>;
 }
 
+// ─── Number normalisation ───────────────────────────────────────────────────
+
+/**
+ * Normalizza il numero per le verifiche:
+ *  - +39 / 0039 → rimuove il prefisso italiano, restituisce le cifre restanti
+ *  - +XX / 00XX (diverso da +39/0039) → lascia il numero così com'è (solo cifre)
+ *  - Nessun prefisso → passa direttamente il numero (solo cifre)
+ */
+function normalizeNumber(number: string): string {
+  const trimmed = number.trim();
+  if (trimmed.startsWith("+39")) {
+    return trimmed.slice(3).replace(/\D/g, "");
+  }
+  if (trimmed.startsWith("0039")) {
+    return trimmed.slice(4).replace(/\D/g, "");
+  }
+  // Qualsiasi altro caso: rimuovi solo i caratteri non-cifra
+  return trimmed.replace(/[^\d]/g, "");
+}
+
 // ─── PdfPlumber-style helpers ────────────────────────────────────────────────
 
 interface TableRow {
@@ -299,8 +319,7 @@ export async function checkPremiumNumber(
   try {
     const { entries, rawTextCompact } = await loadPremiumData();
 
-    // Strip optional country code and non-digits
-    const clean = number.replace(/^\+?39/, "").replace(/\D/g, "");
+    const clean = normalizeNumber(number);
     if (clean.length < 3) return { isPremium: false };
 
     // 1. Match against structured prefix list (longest match wins)
@@ -380,7 +399,7 @@ export async function getPremiumDbStats(): Promise<PremiumDbStats> {
 
 export async function checkAgcom(number: string): Promise<AgcomResult> {
   try {
-    const clean = number.replace(/^\+?39/, "").replace(/\D/g, "");
+    const clean = normalizeNumber(number);
     const res = await fetch(
       `https://datiroc.agcom.it/api/getNumerazioniCallCenter/${clean}`
     );
@@ -412,8 +431,8 @@ export async function checkAgcom(number: string): Promise<AgcomResult> {
 
 export async function checkTellows(number: string): Promise<TellowsResult> {
   try {
-    let tellowsNum = number.replace(/\D/g, "");
-    // Ensure Italian prefix
+    let tellowsNum = normalizeNumber(number);
+    // Tellows URL richiede il prefisso 39 per i numeri italiani
     if (!tellowsNum.startsWith("39") && tellowsNum.length <= 10) {
       tellowsNum = "39" + tellowsNum;
     }
