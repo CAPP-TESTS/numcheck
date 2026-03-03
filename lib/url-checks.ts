@@ -2,6 +2,14 @@ import * as cheerio from "cheerio";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export interface PhishingArmyResult {
+  success: boolean;
+  /** "rosso" = dominio in blocklist phishing, "grigio" = non trovato */
+  alert?: "rosso" | "grigio";
+  found?: boolean;
+  status?: string;
+}
+
 export interface UrlVoidResult {
   success: boolean;
   blacklistStatus?: string;
@@ -13,6 +21,8 @@ export interface UrlVoidResult {
 
 export interface SucuriResult {
   success: boolean;
+  /** "rosso" = malware/blacklist, "grigio" = ok/unknown */
+  alert?: "rosso" | "grigio";
   riskLevel?: string;
   malware?: boolean;
   blacklisted?: boolean;
@@ -144,8 +154,11 @@ export async function checkSucuri(url: string): Promise<SucuriResult> {
       !!(blacklists.listed?.length) ||
       scan.is_blacklisted === true;
 
+    const isDangerous = hasMalware || isBlacklisted;
+
     return {
       success: true,
+      alert: isDangerous ? "rosso" : "grigio",
       riskLevel: String(riskLevel),
       malware: hasMalware,
       blacklisted: isBlacklisted,
@@ -277,6 +290,56 @@ async function checkSafeBrowsingFallback(
     };
   } catch (e) {
     console.error("Safe Browsing fallback error:", e);
+    return { success: false };
+  }
+}
+
+// ─── D. Phishing Army blocklist ─────────────────────────────────────────────
+
+const PHISHING_ARMY_URL =
+  "https://phishing.army/download/phishing_army_blocklist_extended.txt";
+
+let cachedBlocklist: Set<string> | null = null;
+let blocklistFetchedAt = 0;
+const BLOCKLIST_TTL = 1000 * 60 * 30; // 30 min cache
+
+async function loadPhishingBlocklist(): Promise<Set<string>> {
+  if (cachedBlocklist && Date.now() - blocklistFetchedAt < BLOCKLIST_TTL) {
+    return cachedBlocklist;
+  }
+  const res = await fetch(PHISHING_ARMY_URL);
+  if (!res.ok) throw new Error(`Blocklist fetch failed: ${res.status}`);
+  const text = await res.text();
+  const domains = new Set<string>();
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim().toLowerCase();
+    if (trimmed && !trimmed.startsWith("#")) {
+      domains.add(trimmed);
+    }
+  }
+  cachedBlocklist = domains;
+  blocklistFetchedAt = Date.now();
+  return domains;
+}
+
+export async function checkPhishingArmy(
+  url: string
+): Promise<PhishingArmyResult> {
+  try {
+    const domain = cleanDomain(url).toLowerCase();
+    const blocklist = await loadPhishingBlocklist();
+
+    const found = blocklist.has(domain);
+    return {
+      success: true,
+      alert: found ? "rosso" : "grigio",
+      found,
+      status: found
+        ? "Dominio presente nella blocklist Phishing Army"
+        : "Non presente nella blocklist",
+    };
+  } catch (e) {
+    console.error("Phishing Army check error:", e);
     return { success: false };
   }
 }
