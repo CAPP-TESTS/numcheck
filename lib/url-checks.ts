@@ -22,6 +22,8 @@ export interface SucuriResult {
 export interface SafeBrowsingResult {
   success: boolean;
   safe?: boolean;
+  /** "rosso" = sito non sicuro, "giallo" = alcune pagine non sicure, "grigio" = ok/nessun dato */
+  alert?: "rosso" | "giallo" | "grigio";
   status?: string;
   details?: string;
 }
@@ -213,12 +215,17 @@ export async function checkSafeBrowsing(
       }
     }
 
+    let alert: "rosso" | "giallo" | "grigio" = "grigio";
+
     if (statusCode === null || statusCode === 0) {
       statusText = "Nessun contenuto non sicuro trovato";
+      alert = "grigio";
     } else if (statusCode === 1) {
       statusText = "Alcune pagine di questo sito non sono sicure";
+      alert = "giallo";
     } else if (statusCode === 2) {
       statusText = "Sito non sicuro";
+      alert = "rosso";
     } else {
       statusText = `Stato: ${statusCode}`;
     }
@@ -226,6 +233,7 @@ export async function checkSafeBrowsing(
     return {
       success: true,
       safe: statusCode === null || statusCode === 0,
+      alert,
       status: statusText,
       details: `Google Safe Browsing status code: ${statusCode ?? "N/A"}`,
     };
@@ -261,6 +269,7 @@ async function checkSafeBrowsingFallback(
     return {
       success: true,
       safe: !isUnsafe,
+      alert: isUnsafe ? "rosso" : "grigio",
       status: isUnsafe
         ? "Possibile sito pericoloso"
         : "Nessun problema rilevato",

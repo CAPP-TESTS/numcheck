@@ -550,10 +550,12 @@ function UrlCard({ urlItem }: { urlItem: any }) {
           icon={
             !sb?.success ? (
               <Info className="w-5 h-5 text-slate-400 shrink-0" />
-            ) : sbSafe ? (
-              <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-            ) : (
+            ) : sb.alert === "rosso" ? (
               <ShieldAlert className="w-5 h-5 text-red-500 shrink-0" />
+            ) : sb.alert === "giallo" ? (
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            ) : (
+              <ShieldCheck className="w-5 h-5 text-slate-400 shrink-0" />
             )
           }
           label={
@@ -565,10 +567,16 @@ function UrlCard({ urlItem }: { urlItem: any }) {
           value={
             !sb?.success ? (
               <span className="text-slate-500">Impossibile verificare.</span>
-            ) : (
-              <span className={sbSafe ? "text-slate-600" : "text-red-600 font-medium"}>
-                {sb.status}
+            ) : sb.alert === "rosso" ? (
+              <span className="text-red-600 font-medium">
+                Avviso rosso &mdash; {sb.status}
               </span>
+            ) : sb.alert === "giallo" ? (
+              <span className="text-amber-600 font-medium">
+                Avviso giallo &mdash; {sb.status}
+              </span>
+            ) : (
+              <span className="text-slate-600">{sb.status}</span>
             )
           }
         />
