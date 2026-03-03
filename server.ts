@@ -2,7 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { extractEntities } from "./lib/extractor";
 import {
-  checkWindTre,
+  checkPremiumNumber,
   checkAgcom,
   checkTellows,
 } from "./lib/phone-checks";
@@ -24,24 +24,24 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(400).json({ error: "Il campo 'text' è obbligatorio" });
     }
 
-    // 1. Extract phone numbers and URLs using Gemini
+    // 1. Extract phone numbers and URLs
     const extracted = await extractEntities(text);
     const { phoneNumbers, urls } = extracted;
 
-    // 2. Phone number checks (sequential: WindTre → AGCOM → Tellows)
+    // 2. Phone number checks (sequential: Premium → AGCOM → Tellows)
     const phoneResults = [];
     for (const num of phoneNumbers) {
       const result: any = {
         number: num,
-        checks: { windTrePremium: { isPremium: false } },
+        checks: { premiumCheck: { isPremium: false } },
       };
 
-      // Step 1: WindTre premium
-      const windtre = await checkWindTre(num);
-      result.checks.windTrePremium = windtre;
+      // Step 1: Premium number check (WindTre + Iliad)
+      const premium = await checkPremiumNumber(num);
+      result.checks.premiumCheck = premium;
 
       // Step 2: AGCOM (only if not premium)
-      if (!windtre.isPremium) {
+      if (!premium.isPremium) {
         const agcom = await checkAgcom(num);
         result.checks.agcom = agcom;
 

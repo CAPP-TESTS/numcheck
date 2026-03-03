@@ -2,10 +2,17 @@ import * as cheerio from "cheerio";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export interface WindTreResult {
+export interface PremiumCheckResult {
   isPremium: boolean;
+  /** "rosso" quando confermata numerazione a sovrapprezzo */
+  alert?: "rosso";
+  /** Operatore/fonte che ha confermato la numerazione (es. "WindTre", "Iliad") */
+  operator?: string;
+  /** Prefisso o arco di numerazione corrispondente */
   matchedPrefix?: string;
+  /** Nome del centro servizi / operatore associato alla numerazione */
   service?: string;
+  /** Riga originale dal PDF */
   context?: string;
 }
 
@@ -32,6 +39,8 @@ interface PremiumEntry {
   prefix: string;
   service: string;
   context: string;
+  /** Fonte/operatore da cui proviene l'entry */
+  operator: string;
 }
 
 /**
@@ -90,7 +99,10 @@ function isPotentialPremiumNumber(num: string): boolean {
  * For each row, scans cells for number patterns and, when found, pairs the number
  * with textual context from adjacent cells (service name, cost description, etc.).
  */
-function extractPremiumEntries(rows: TableRow[]): PremiumEntry[] {
+function extractPremiumEntries(
+  rows: TableRow[],
+  operator: string
+): PremiumEntry[] {
   const entries: PremiumEntry[] = [];
   const seen = new Set<string>();
 
@@ -119,6 +131,7 @@ function extractPremiumEntries(rows: TableRow[]): PremiumEntry[] {
           prefix: digits,
           service,
           context: row.raw,
+          operator,
         });
       }
     }
@@ -129,19 +142,11 @@ function extractPremiumEntries(rows: TableRow[]): PremiumEntry[] {
 
 // ─── Resilient PDF text extraction (v1 & v2 compatible) ─────────────────────
 
-/**
- * Extracts text from a PDF buffer. Handles both pdf-parse v1 (default export
- * function) and v2 (named class PDFParse). Falls back gracefully if the
- * module is unavailable or the API changes.
- */
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    // Dynamic import — cast to any so we can probe both v1 and v2 APIs at
-    // runtime without TypeScript complaining about whichever version's types
-    // happen to be installed.
     const mod: any = await import("pdf-parse");
 
-    // v2 class-based API: import { PDFParse } from "pdf-parse"
+    // v2 class-based API
     if (mod.PDFParse && typeof mod.PDFParse === "function") {
       const parser = new mod.PDFParse({ data: buffer });
       const data = await parser.getText();
@@ -150,7 +155,7 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
       return text;
     }
 
-    // v1 function-based API: import pdfParse from "pdf-parse"
+    // v1 function-based API
     const pdfParse = mod.default || mod;
     if (typeof pdfParse === "function") {
       const data = await pdfParse(buffer);
@@ -165,12 +170,28 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   }
 }
 
-// ─── WindTre premium number check ────────────────────────────────────────────
+// ─── PDF sources ─────────────────────────────────────────────────────────────
 
-let cachedEntries: PremiumEntry[] | null = null;
-let cachedRawText: string | null = null;
+/** Iliad premium-number PDFs (fixed URLs, one per prefix family). */
+const ILIAD_PDF_URLS = [
+  "https://www.iliad.it/docs/892.pdf",
+  "https://www.iliad.it/docs/893.pdf",
+  "https://www.iliad.it/docs/894.pdf",
+  "https://www.iliad.it/docs/895.pdf",
+  "https://www.iliad.it/docs/899.pdf",
+];
 
-async function fetchPdfLinks(): Promise<string[]> {
+// ─── Data loading ────────────────────────────────────────────────────────────
+
+interface PremiumData {
+  entries: PremiumEntry[];
+  rawText: string;
+}
+
+let cachedData: PremiumData | null = null;
+
+/** Scrape WindTre's surcharge page to discover PDF links. */
+async function fetchWindTrePdfLinks(): Promise<string[]> {
   const response = await fetch(
     "https://www.windtre.it/windtregroup/governance/servizi-a-sovrapprezzo"
   );
@@ -193,43 +214,62 @@ async function fetchPdfLinks(): Promise<string[]> {
   return pdfLinks.slice(0, 4);
 }
 
-async function loadWindTreData(): Promise<{
-  entries: PremiumEntry[];
-  rawText: string;
-}> {
-  if (cachedEntries && cachedRawText) {
-    return { entries: cachedEntries, rawText: cachedRawText };
-  }
-
-  const pdfLinks = await fetchPdfLinks();
-  const allEntries: PremiumEntry[] = [];
-  let allText = "";
-
-  for (const link of pdfLinks) {
-    try {
-      const pdfRes = await fetch(link);
-      const arrayBuffer = await pdfRes.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const text = await extractPdfText(buffer);
-      allText += text + "\n";
-
-      // PdfPlumber-style: extract table rows then identify premium entries
-      const rows = extractTableRows(text);
-      const entries = extractPremiumEntries(rows);
-      allEntries.push(...entries);
-    } catch (e) {
-      console.error(`Failed to parse PDF ${link}:`, e);
+/** Download one PDF, extract text and premium entries. */
+async function parsePdf(
+  url: string,
+  operator: string
+): Promise<{ entries: PremiumEntry[]; text: string }> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`PDF fetch failed (${res.status}): ${url}`);
+      return { entries: [], text: "" };
     }
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const text = await extractPdfText(buffer);
+    const rows = extractTableRows(text);
+    const entries = extractPremiumEntries(rows, operator);
+    return { entries, text };
+  } catch (e) {
+    console.error(`Failed to parse PDF ${url}:`, e);
+    return { entries: [], text: "" };
   }
-
-  cachedEntries = allEntries;
-  cachedRawText = allText;
-  return { entries: allEntries, rawText: allText };
 }
 
-export async function checkWindTre(number: string): Promise<WindTreResult> {
+/** Load and merge premium-number data from both WindTre and Iliad. */
+async function loadPremiumData(): Promise<PremiumData> {
+  if (cachedData) return cachedData;
+
+  // Fetch WindTre PDF links + parse all PDFs in parallel
+  const windTreLinks = await fetchWindTrePdfLinks();
+
+  const allJobs = [
+    ...windTreLinks.map((url) => parsePdf(url, "WindTre")),
+    ...ILIAD_PDF_URLS.map((url) => parsePdf(url, "Iliad")),
+  ];
+
+  const results = await Promise.all(allJobs);
+
+  const allEntries: PremiumEntry[] = [];
+  let allText = "";
+  for (const r of results) {
+    allEntries.push(...r.entries);
+    allText += r.text + "\n";
+  }
+
+  cachedData = { entries: allEntries, rawText: allText };
+  return cachedData;
+}
+
+// ─── Premium number check (WindTre + Iliad) ─────────────────────────────────
+
+export async function checkPremiumNumber(
+  number: string
+): Promise<PremiumCheckResult> {
   try {
-    const { entries, rawText } = await loadWindTreData();
+    const { entries, rawText } = await loadPremiumData();
+
     // Strip optional country code and non-digits
     const clean = number.replace(/^\+?39/, "").replace(/\D/g, "");
     if (clean.length < 3) return { isPremium: false };
@@ -247,6 +287,8 @@ export async function checkWindTre(number: string): Promise<WindTreResult> {
     if (bestMatch) {
       return {
         isPremium: true,
+        alert: "rosso",
+        operator: bestMatch.operator,
         matchedPrefix: bestMatch.prefix,
         service: bestMatch.service,
         context: bestMatch.context,
@@ -257,14 +299,15 @@ export async function checkWindTre(number: string): Promise<WindTreResult> {
     if (rawText.includes(clean)) {
       return {
         isPremium: true,
+        alert: "rosso",
         matchedPrefix: clean,
-        context: "Trovato nel database WindTre (ricerca diretta)",
+        context: "Trovato nei database operatori (ricerca diretta)",
       };
     }
 
     return { isPremium: false };
   } catch (e) {
-    console.error("WindTre check error:", e);
+    console.error("Premium number check error:", e);
     return { isPremium: false };
   }
 }

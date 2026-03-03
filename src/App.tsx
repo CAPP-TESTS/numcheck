@@ -183,7 +183,7 @@ export default function App() {
 // ─── Phone result card ───────────────────────────────────────────────────────
 
 function PhoneCard({ phone }: { phone: any }) {
-  const wt = phone.checks.windTrePremium;
+  const premium = phone.checks.premiumCheck;
   const agcom = phone.checks.agcom;
   const tellows = phone.checks.tellows;
 
@@ -192,24 +192,28 @@ function PhoneCard({ phone }: { phone: any }) {
       <div className="font-mono text-lg font-medium mb-3">{phone.number}</div>
 
       <div className="space-y-2 text-sm">
-        {/* 1. WindTre Premium */}
+        {/* 1. Verifica sovrapprezzo (WindTre + Iliad) */}
         <CheckRow
           icon={
-            wt?.isPremium ? (
+            premium?.isPremium ? (
               <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
             ) : (
               <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
             )
           }
-          label="WindTre Premium"
+          label="Sovrapprezzo"
           value={
-            wt?.isPremium ? (
+            premium?.isPremium ? (
               <span className="text-red-600 font-medium">
-                Numero a sovrapprezzo rilevato!
-                {wt.service && (
+                Avviso rosso &mdash; Numero a sovrapprezzo confermato
+                {premium.operator && (
                   <span className="font-normal text-red-500">
-                    {" "}
-                    &mdash; {wt.service}
+                    {" "}(fonte: {premium.operator})
+                  </span>
+                )}
+                {premium.service && (
+                  <span className="font-normal text-red-500">
+                    {" "}&mdash; {premium.service}
                   </span>
                 )}
               </span>
@@ -222,7 +226,7 @@ function PhoneCard({ phone }: { phone: any }) {
         />
 
         {/* 2. AGCOM ROC */}
-        {!wt?.isPremium && agcom && (
+        {!premium?.isPremium && agcom && (
           <CheckRow
             icon={
               agcom.found ? (
@@ -247,7 +251,7 @@ function PhoneCard({ phone }: { phone: any }) {
         )}
 
         {/* 3. Tellows */}
-        {!wt?.isPremium && agcom && !agcom.found && tellows && (
+        {!premium?.isPremium && agcom && !agcom.found && tellows && (
           <CheckRow
             icon={
               tellows.found ? (
