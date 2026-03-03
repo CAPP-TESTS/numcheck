@@ -1,4 +1,10 @@
 import * as cheerio from "cheerio";
+import { ensureDomPolyfills } from "./dom-polyfills.js";
+
+// Install DOM polyfills before pdf-parse / pdfjs-dist can be imported.
+// pdfjs-dist v5 references DOMMatrix at module scope, so the polyfill
+// must exist in globalThis BEFORE the dynamic import() triggers.
+ensureDomPolyfills();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
