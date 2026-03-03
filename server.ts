@@ -1,16 +1,16 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import { extractEntities } from "./lib/extractor.js";
+import { extractEntities } from "./lib/extractor";
 import {
   checkWindTre,
   checkAgcom,
   checkTellows,
-} from "./lib/phone-checks.js";
+} from "./lib/phone-checks";
 import {
   checkUrlVoid,
   checkSucuri,
   checkSafeBrowsing,
-} from "./lib/url-checks.js";
+} from "./lib/url-checks";
 
 const app = express();
 const PORT = 3000;

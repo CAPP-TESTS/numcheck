@@ -1,4 +1,3 @@
-import { PDFParse } from "pdf-parse";
 import * as cheerio from "cheerio";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -128,6 +127,44 @@ function extractPremiumEntries(rows: TableRow[]): PremiumEntry[] {
   return entries;
 }
 
+// ─── Resilient PDF text extraction (v1 & v2 compatible) ─────────────────────
+
+/**
+ * Extracts text from a PDF buffer. Handles both pdf-parse v1 (default export
+ * function) and v2 (named class PDFParse). Falls back gracefully if the
+ * module is unavailable or the API changes.
+ */
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  try {
+    // Dynamic import — cast to any so we can probe both v1 and v2 APIs at
+    // runtime without TypeScript complaining about whichever version's types
+    // happen to be installed.
+    const mod: any = await import("pdf-parse");
+
+    // v2 class-based API: import { PDFParse } from "pdf-parse"
+    if (mod.PDFParse && typeof mod.PDFParse === "function") {
+      const parser = new mod.PDFParse({ data: buffer });
+      const data = await parser.getText();
+      const text = data.text || "";
+      await parser.destroy();
+      return text;
+    }
+
+    // v1 function-based API: import pdfParse from "pdf-parse"
+    const pdfParse = mod.default || mod;
+    if (typeof pdfParse === "function") {
+      const data = await pdfParse(buffer);
+      return data.text || "";
+    }
+
+    console.error("pdf-parse: could not detect API version");
+    return "";
+  } catch (e) {
+    console.error("pdf-parse extraction failed:", e);
+    return "";
+  }
+}
+
 // ─── WindTre premium number check ────────────────────────────────────────────
 
 let cachedEntries: PremiumEntry[] | null = null;
@@ -173,17 +210,13 @@ async function loadWindTreData(): Promise<{
       const pdfRes = await fetch(link);
       const arrayBuffer = await pdfRes.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const parser = new PDFParse({ data: buffer });
-      const data = await parser.getText();
-      const text = data.text || "";
+      const text = await extractPdfText(buffer);
       allText += text + "\n";
 
       // PdfPlumber-style: extract table rows then identify premium entries
       const rows = extractTableRows(text);
       const entries = extractPremiumEntries(rows);
       allEntries.push(...entries);
-
-      await parser.destroy();
     } catch (e) {
       console.error(`Failed to parse PDF ${link}:`, e);
     }
