@@ -1,4 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { extractEntities } from "../lib/extractor";
+import {
+  checkWindTre,
+  checkAgcom,
+  checkTellows,
+} from "../lib/phone-checks";
+import {
+  checkUrlVoid,
+  checkSucuri,
+  checkSafeBrowsing,
+} from "../lib/url-checks";
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
@@ -8,42 +19,14 @@ export default async function handler(
 ) {
   // GET = health-check (useful for debugging deploy issues)
   if (req.method === "GET") {
-    return res.json({ status: "ok", env: { hasGeminiKey: !!process.env.GEMINI_API_KEY } });
+    return res.json({
+      status: "ok",
+      env: { hasGeminiKey: !!process.env.GEMINI_API_KEY },
+    });
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  // Dynamic imports — avoids crash-at-load if a dependency has bundling issues
-  let extractEntities: typeof import("../lib/extractor")["extractEntities"];
-  let checkWindTre: typeof import("../lib/phone-checks")["checkWindTre"];
-  let checkAgcom: typeof import("../lib/phone-checks")["checkAgcom"];
-  let checkTellows: typeof import("../lib/phone-checks")["checkTellows"];
-  let checkUrlVoid: typeof import("../lib/url-checks")["checkUrlVoid"];
-  let checkSucuri: typeof import("../lib/url-checks")["checkSucuri"];
-  let checkSafeBrowsing: typeof import("../lib/url-checks")["checkSafeBrowsing"];
-
-  try {
-    const extractor = await import("../lib/extractor");
-    extractEntities = extractor.extractEntities;
-
-    const phoneChecks = await import("../lib/phone-checks");
-    checkWindTre = phoneChecks.checkWindTre;
-    checkAgcom = phoneChecks.checkAgcom;
-    checkTellows = phoneChecks.checkTellows;
-
-    const urlChecks = await import("../lib/url-checks");
-    checkUrlVoid = urlChecks.checkUrlVoid;
-    checkSucuri = urlChecks.checkSucuri;
-    checkSafeBrowsing = urlChecks.checkSafeBrowsing;
-  } catch (importErr: any) {
-    console.error("Import error:", importErr);
-    return res.status(500).json({
-      error: "Errore nel caricamento dei moduli",
-      detail: importErr.message,
-      stack: importErr.stack,
-    });
   }
 
   try {
@@ -100,7 +83,7 @@ export default async function handler(
     console.error("Analysis error:", error);
     return res.status(500).json({
       error: error.message || "Errore interno del server",
-      stack: error.stack,
+      detail: error.stack,
     });
   }
 }
