@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "vite build && npx esbuild lib/extractor.ts lib/phone-checks.ts lib/url-checks.ts --outdir=lib --format=esm --platform=node --packages=external",
   "outputDirectory": "dist",
   "functions": {
     "api/analyze.ts": {

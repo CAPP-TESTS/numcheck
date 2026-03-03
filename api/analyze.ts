@@ -1,15 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { extractEntities } from "../lib/extractor";
+import { extractEntities } from "../lib/extractor.js";
 import {
   checkWindTre,
   checkAgcom,
   checkTellows,
-} from "../lib/phone-checks";
+} from "../lib/phone-checks.js";
 import {
   checkUrlVoid,
   checkSucuri,
   checkSafeBrowsing,
-} from "../lib/url-checks";
+} from "../lib/url-checks.js";
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
