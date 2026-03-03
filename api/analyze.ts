@@ -10,6 +10,7 @@ import {
   checkUrlVoid,
   checkSucuri,
   checkSafeBrowsing,
+  checkPhishingArmy,
 } from "../lib/url-checks.js";
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -37,39 +38,31 @@ export default async function handler(
     const extracted = await extractEntities(text);
     const { phoneNumbers, urls } = extracted;
 
-    // 2. Phone number checks (sequential: Premium → AGCOM → Tellows)
-    const phoneResults: any[] = [];
-    for (const num of phoneNumbers) {
-      const result: any = {
-        number: num,
-        checks: { premiumCheck: { isPremium: false } },
-      };
+    // 2. Phone number checks (all three in parallel for each number)
+    const phoneResults = await Promise.all(
+      phoneNumbers.map(async (num: string) => {
+        const [premium, agcom, tellows] = await Promise.all([
+          checkPremiumNumber(num),
+          checkAgcom(num),
+          checkTellows(num),
+        ]);
+        return {
+          number: num,
+          checks: { premiumCheck: premium, agcom, tellows },
+        };
+      })
+    );
 
-      const premium = await checkPremiumNumber(num);
-      result.checks.premiumCheck = premium;
-
-      if (!premium.isPremium) {
-        const agcom = await checkAgcom(num);
-        result.checks.agcom = agcom;
-
-        if (!agcom.found) {
-          const tellows = await checkTellows(num);
-          result.checks.tellows = tellows;
-        }
-      }
-
-      phoneResults.push(result);
-    }
-
-    // 3. URL checks (all three in parallel for each URL)
+    // 3. URL checks (all four in parallel for each URL)
     const urlResults = await Promise.all(
       urls.map(async (url: string) => {
-        const [urlVoid, sucuri, safeBrowsing] = await Promise.all([
+        const [urlVoid, sucuri, safeBrowsing, phishingArmy] = await Promise.all([
           checkUrlVoid(url),
           checkSucuri(url),
           checkSafeBrowsing(url),
+          checkPhishingArmy(url),
         ]);
-        return { url, checks: { urlVoid, sucuri, safeBrowsing } };
+        return { url, checks: { urlVoid, sucuri, safeBrowsing, phishingArmy } };
       })
     );
 

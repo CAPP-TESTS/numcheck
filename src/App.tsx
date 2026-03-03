@@ -403,7 +403,7 @@ function PhoneCard({ phone }: { phone: any }) {
         />
 
         {/* 2. AGCOM ROC */}
-        {!premium?.isPremium && agcom && (
+        {agcom && (
           <CheckRow
             icon={
               agcom.found ? (
@@ -428,7 +428,7 @@ function PhoneCard({ phone }: { phone: any }) {
         )}
 
         {/* 3. Tellows */}
-        {!premium?.isPremium && agcom && !agcom.found && tellows && (
+        {tellows && (
           <CheckRow
             icon={
               tellows.found ? (
@@ -468,14 +468,21 @@ function UrlCard({ urlItem }: { urlItem: any }) {
   const uv = urlItem.checks.urlVoid;
   const su = urlItem.checks.sucuri;
   const sb = urlItem.checks.safeBrowsing;
+  const pa = urlItem.checks.phishingArmy;
 
   const uvSafe =
     uv?.success && (uv.detections === 0 || uv.blacklistStatus?.startsWith("0/"));
-  const suSafe = su?.success && !su.malware && !su.blacklisted;
-  const sbSafe = sb?.success && sb.safe;
+  const suSafe = su?.success && su.alert !== "rosso";
+  const sbSafe = sb?.success && sb.alert !== "rosso";
+  const paSafe = pa?.success && !pa.found;
 
   // Overall danger assessment
-  const dangerCount = [!uvSafe && uv?.success, !suSafe && su?.success, !sbSafe && sb?.success].filter(Boolean).length;
+  const dangerCount = [
+    !uvSafe && uv?.success,
+    !suSafe && su?.success,
+    !sbSafe && sb?.success,
+    !paSafe && pa?.success,
+  ].filter(Boolean).length;
 
   return (
     <div
@@ -525,21 +532,25 @@ function UrlCard({ urlItem }: { urlItem: any }) {
           icon={
             !su?.success ? (
               <Info className="w-5 h-5 text-slate-400 shrink-0" />
-            ) : suSafe ? (
-              <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
-            ) : (
+            ) : su.alert === "rosso" ? (
               <ShieldAlert className="w-5 h-5 text-red-500 shrink-0" />
+            ) : (
+              <ShieldCheck className="w-5 h-5 text-slate-400 shrink-0" />
             )
           }
           label="Sucuri"
           value={
             !su?.success ? (
               <span className="text-slate-500">Impossibile verificare.</span>
-            ) : (
-              <span className={suSafe ? "text-slate-600" : "text-red-600 font-medium"}>
-                Rischio: {su.riskLevel}
+            ) : su.alert === "rosso" ? (
+              <span className="text-red-600 font-medium">
+                Avviso rosso &mdash; Rischio: {su.riskLevel}
                 {su.malware && " | Malware rilevato"}
                 {su.blacklisted && " | In blacklist"}
+              </span>
+            ) : (
+              <span className="text-slate-600">
+                Rischio: {su.riskLevel}
               </span>
             )
           }
@@ -577,6 +588,31 @@ function UrlCard({ urlItem }: { urlItem: any }) {
               </span>
             ) : (
               <span className="text-slate-600">{sb.status}</span>
+            )
+          }
+        />
+
+        {/* D. Phishing Army */}
+        <CheckRow
+          icon={
+            !pa?.success ? (
+              <Info className="w-5 h-5 text-slate-400 shrink-0" />
+            ) : pa.alert === "rosso" ? (
+              <ShieldAlert className="w-5 h-5 text-red-500 shrink-0" />
+            ) : (
+              <ShieldCheck className="w-5 h-5 text-slate-400 shrink-0" />
+            )
+          }
+          label="Phishing Army"
+          value={
+            !pa?.success ? (
+              <span className="text-slate-500">Impossibile verificare.</span>
+            ) : pa.alert === "rosso" ? (
+              <span className="text-red-600 font-medium">
+                Avviso rosso &mdash; {pa.status}
+              </span>
+            ) : (
+              <span className="text-slate-600">{pa.status}</span>
             )
           }
         />
