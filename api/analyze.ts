@@ -1,41 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { extractEntities } from "../lib/extractor.js";
-import {
-  checkWindTre,
-  checkAgcom,
-  checkTellows,
-  type WindTreResult,
-  type AgcomResult,
-  type TellowsResult,
-} from "../lib/phone-checks.js";
-import {
-  checkUrlVoid,
-  checkSucuri,
-  checkSafeBrowsing,
-  type UrlVoidResult,
-  type SucuriResult,
-  type SafeBrowsingResult,
-} from "../lib/url-checks.js";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface PhoneCheckResult {
-  number: string;
-  checks: {
-    windTrePremium: WindTreResult;
-    agcom?: AgcomResult;
-    tellows?: TellowsResult;
-  };
-}
-
-interface UrlCheckResult {
-  url: string;
-  checks: {
-    urlVoid: UrlVoidResult;
-    sucuri: SucuriResult;
-    safeBrowsing: SafeBrowsingResult;
-  };
-}
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
@@ -43,9 +6,44 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // Only accept POST
+  // GET = health-check (useful for debugging deploy issues)
+  if (req.method === "GET") {
+    return res.json({ status: "ok", env: { hasGeminiKey: !!process.env.GEMINI_API_KEY } });
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Dynamic imports — avoids crash-at-load if a dependency has bundling issues
+  let extractEntities: typeof import("../lib/extractor")["extractEntities"];
+  let checkWindTre: typeof import("../lib/phone-checks")["checkWindTre"];
+  let checkAgcom: typeof import("../lib/phone-checks")["checkAgcom"];
+  let checkTellows: typeof import("../lib/phone-checks")["checkTellows"];
+  let checkUrlVoid: typeof import("../lib/url-checks")["checkUrlVoid"];
+  let checkSucuri: typeof import("../lib/url-checks")["checkSucuri"];
+  let checkSafeBrowsing: typeof import("../lib/url-checks")["checkSafeBrowsing"];
+
+  try {
+    const extractor = await import("../lib/extractor");
+    extractEntities = extractor.extractEntities;
+
+    const phoneChecks = await import("../lib/phone-checks");
+    checkWindTre = phoneChecks.checkWindTre;
+    checkAgcom = phoneChecks.checkAgcom;
+    checkTellows = phoneChecks.checkTellows;
+
+    const urlChecks = await import("../lib/url-checks");
+    checkUrlVoid = urlChecks.checkUrlVoid;
+    checkSucuri = urlChecks.checkSucuri;
+    checkSafeBrowsing = urlChecks.checkSafeBrowsing;
+  } catch (importErr: any) {
+    console.error("Import error:", importErr);
+    return res.status(500).json({
+      error: "Errore nel caricamento dei moduli",
+      detail: importErr.message,
+      stack: importErr.stack,
+    });
   }
 
   try {
@@ -59,25 +57,20 @@ export default async function handler(
     const { phoneNumbers, urls } = extracted;
 
     // 2. Phone number checks (sequential: WindTre → AGCOM → Tellows)
-    const phoneResults: PhoneCheckResult[] = [];
+    const phoneResults: any[] = [];
     for (const num of phoneNumbers) {
-      const result: PhoneCheckResult = {
+      const result: any = {
         number: num,
-        checks: {
-          windTrePremium: { isPremium: false },
-        },
+        checks: { windTrePremium: { isPremium: false } },
       };
 
-      // Step 1: WindTre premium
       const windtre = await checkWindTre(num);
       result.checks.windTrePremium = windtre;
 
-      // Step 2: AGCOM (only if not premium)
       if (!windtre.isPremium) {
         const agcom = await checkAgcom(num);
         result.checks.agcom = agcom;
 
-        // Step 3: Tellows (only if not in AGCOM)
         if (!agcom.found) {
           const tellows = await checkTellows(num);
           result.checks.tellows = tellows;
@@ -88,31 +81,26 @@ export default async function handler(
     }
 
     // 3. URL checks (all three in parallel for each URL)
-    const urlResults: UrlCheckResult[] = await Promise.all(
+    const urlResults = await Promise.all(
       urls.map(async (url: string) => {
         const [urlVoid, sucuri, safeBrowsing] = await Promise.all([
           checkUrlVoid(url),
           checkSucuri(url),
           checkSafeBrowsing(url),
         ]);
-        return {
-          url,
-          checks: { urlVoid, sucuri, safeBrowsing },
-        };
+        return { url, checks: { urlVoid, sucuri, safeBrowsing } };
       })
     );
 
     return res.json({
       extracted: { phoneNumbers, urls },
-      analysis: {
-        phones: phoneResults,
-        urls: urlResults,
-      },
+      analysis: { phones: phoneResults, urls: urlResults },
     });
   } catch (error: any) {
     console.error("Analysis error:", error);
-    return res
-      .status(500)
-      .json({ error: error.message || "Errore interno del server" });
+    return res.status(500).json({
+      error: error.message || "Errore interno del server",
+      stack: error.stack,
+    });
   }
 }
