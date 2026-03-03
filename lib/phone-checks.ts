@@ -14,6 +14,12 @@ export interface PremiumCheckResult {
   service?: string;
   /** Riga originale dal PDF */
   context?: string;
+  /** Debug info (only present when debug is enabled) */
+  debug?: {
+    cleanInput: string;
+    totalEntries: number;
+    matchStrategy: "prefix_table" | "raw_text" | "none";
+  };
 }
 
 export interface AgcomResult {
@@ -26,6 +32,17 @@ export interface TellowsResult {
   score?: string;
   name?: string;
   details?: string;
+}
+
+/** Stats about the loaded premium number database. */
+export interface PremiumDbStats {
+  totalEntries: number;
+  rawTextLength: number;
+  sampleEntries: Array<{
+    prefix: string;
+    operator: string;
+    service: string;
+  }>;
 }
 
 // ─── PdfPlumber-style helpers ────────────────────────────────────────────────
@@ -77,6 +94,7 @@ const PREMIUM_STARTS = [
   "892",
   "894",
   "893",
+  "891",
   "166",
   "144",
   "163",
@@ -98,6 +116,8 @@ function isPotentialPremiumNumber(num: string): boolean {
  * Extracts premium number entries from table rows in a pdfplumber-inspired way.
  * For each row, scans cells for number patterns and, when found, pairs the number
  * with textual context from adjacent cells (service name, cost description, etc.).
+ *
+ * Handles spaces between digits in cells (e.g. "894 894" → "894894").
  */
 function extractPremiumEntries(
   rows: TableRow[],
@@ -110,8 +130,12 @@ function extractPremiumEntries(
     // Try to find number-like tokens in each cell
     for (let ci = 0; ci < row.cells.length; ci++) {
       const cell = row.cells[ci];
+
+      // Collapse single spaces between digits: "894 894" → "894894"
+      const normalized = cell.replace(/(\d)\s+(\d)/g, "$1$2");
+
       // Match sequences of 3-10 digits (possibly with separators like dots/dashes)
-      const numTokens = cell.match(/\b\d[\d.\-/]{2,9}\b/g);
+      const numTokens = normalized.match(/\b\d[\d.\-/]{2,9}\b/g);
       if (!numTokens) continue;
 
       for (const raw of numTokens) {
@@ -186,6 +210,8 @@ const ILIAD_PDF_URLS = [
 interface PremiumData {
   entries: PremiumEntry[];
   rawText: string;
+  /** Raw text with spaces between digits collapsed for fallback search */
+  rawTextCompact: string;
 }
 
 let cachedData: PremiumData | null = null;
@@ -258,7 +284,10 @@ async function loadPremiumData(): Promise<PremiumData> {
     allText += r.text + "\n";
   }
 
-  cachedData = { entries: allEntries, rawText: allText };
+  // Pre-compute compact version (spaces between digits collapsed) for fallback
+  const rawTextCompact = allText.replace(/(\d)\s+(\d)/g, "$1$2");
+
+  cachedData = { entries: allEntries, rawText: allText, rawTextCompact };
   return cachedData;
 }
 
@@ -268,7 +297,7 @@ export async function checkPremiumNumber(
   number: string
 ): Promise<PremiumCheckResult> {
   try {
-    const { entries, rawText } = await loadPremiumData();
+    const { entries, rawTextCompact } = await loadPremiumData();
 
     // Strip optional country code and non-digits
     const clean = number.replace(/^\+?39/, "").replace(/\D/g, "");
@@ -277,7 +306,10 @@ export async function checkPremiumNumber(
     // 1. Match against structured prefix list (longest match wins)
     let bestMatch: PremiumEntry | null = null;
     for (const entry of entries) {
-      if (clean.startsWith(entry.prefix)) {
+      if (
+        clean.startsWith(entry.prefix) ||
+        entry.prefix.startsWith(clean)
+      ) {
         if (!bestMatch || entry.prefix.length > bestMatch.prefix.length) {
           bestMatch = entry;
         }
@@ -292,24 +324,56 @@ export async function checkPremiumNumber(
         matchedPrefix: bestMatch.prefix,
         service: bestMatch.service,
         context: bestMatch.context,
+        debug: {
+          cleanInput: clean,
+          totalEntries: entries.length,
+          matchStrategy: "prefix_table",
+        },
       };
     }
 
-    // 2. Fallback: direct text search in the raw PDF content
-    if (rawText.includes(clean)) {
+    // 2. Fallback: direct text search in compact raw PDF content
+    //    (spaces between digits have been collapsed so "894 894" matches "894894")
+    if (rawTextCompact.includes(clean)) {
       return {
         isPremium: true,
         alert: "rosso",
         matchedPrefix: clean,
         context: "Trovato nei database operatori (ricerca diretta)",
+        debug: {
+          cleanInput: clean,
+          totalEntries: entries.length,
+          matchStrategy: "raw_text",
+        },
       };
     }
 
-    return { isPremium: false };
+    return {
+      isPremium: false,
+      debug: {
+        cleanInput: clean,
+        totalEntries: entries.length,
+        matchStrategy: "none",
+      },
+    };
   } catch (e) {
     console.error("Premium number check error:", e);
     return { isPremium: false };
   }
+}
+
+/** Returns stats about the loaded premium database (for debug panel). */
+export async function getPremiumDbStats(): Promise<PremiumDbStats> {
+  const data = await loadPremiumData();
+  return {
+    totalEntries: data.entries.length,
+    rawTextLength: data.rawText.length,
+    sampleEntries: data.entries.slice(0, 30).map((e) => ({
+      prefix: e.prefix,
+      operator: e.operator,
+      service: e.service,
+    })),
+  };
 }
 
 // ─── AGCOM ROC call-center registry ──────────────────────────────────────────

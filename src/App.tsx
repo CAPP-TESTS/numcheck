@@ -11,12 +11,16 @@ import {
   Globe,
   ShieldAlert,
   ShieldCheck,
+  Bug,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 export default function App() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any>(null);
+  const [debugData, setDebugData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const analyzeText = async () => {
@@ -24,6 +28,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setResults(null);
+    setDebugData(null);
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -36,6 +41,7 @@ export default function App() {
       }
       const data = await res.json();
       setResults(data.analysis);
+      setDebugData(data.debug || null);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -175,7 +181,178 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* ── Debug Panel ─────────────────────────────────────── */}
+        {(debugData || results) && (
+          <div className="lg:col-span-12 mt-4">
+            <DebugPanel debugData={debugData} results={results} />
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+// ─── Debug panel ────────────────────────────────────────────────────────────
+
+function DebugPanel({ debugData, results }: { debugData: any; results: any }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+      >
+        <Bug className="w-4 h-4" />
+        Debug
+        {open ? (
+          <ChevronDown className="w-4 h-4 ml-auto" />
+        ) : (
+          <ChevronRight className="w-4 h-4 ml-auto" />
+        )}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-4 text-xs font-mono border-t border-slate-100">
+          {/* Extraction */}
+          {debugData && (
+            <>
+              <DebugSection title="1. Estrazione dall'input">
+                <p className="text-slate-500">
+                  Input: <span className="text-slate-700">"{debugData.inputSnippet}"</span>
+                </p>
+                <p className="text-slate-500 mt-1">
+                  Numeri estratti:{" "}
+                  {debugData.extractedPhoneNumbers?.length > 0 ? (
+                    <span className="text-emerald-600">
+                      {debugData.extractedPhoneNumbers.join(", ")}
+                    </span>
+                  ) : (
+                    <span className="text-red-500">nessuno</span>
+                  )}
+                </p>
+                <p className="text-slate-500 mt-1">
+                  URL estratti:{" "}
+                  {debugData.extractedUrls?.length > 0 ? (
+                    <span className="text-emerald-600">
+                      {debugData.extractedUrls.join(", ")}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">nessuno</span>
+                  )}
+                </p>
+              </DebugSection>
+
+              {/* Premium DB stats */}
+              <DebugSection title="2. Database premium (PDF)">
+                <p className="text-slate-500">
+                  Entries totali:{" "}
+                  <span className="text-slate-700">
+                    {debugData.premiumDb?.totalEntries ?? "N/A"}
+                  </span>
+                </p>
+                <p className="text-slate-500 mt-1">
+                  Testo raw:{" "}
+                  <span className="text-slate-700">
+                    {debugData.premiumDb?.rawTextLength
+                      ? `${Math.round(debugData.premiumDb.rawTextLength / 1024)} KB`
+                      : "N/A"}
+                  </span>
+                </p>
+                {debugData.premiumDb?.sampleEntries?.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-slate-400 mb-1">
+                      Campione entries ({debugData.premiumDb.sampleEntries.length}):
+                    </p>
+                    <div className="max-h-40 overflow-y-auto bg-slate-50 rounded p-2 space-y-0.5">
+                      {debugData.premiumDb.sampleEntries.map(
+                        (e: any, i: number) => (
+                          <div key={i} className="text-slate-600">
+                            <span className="text-indigo-600 font-medium">
+                              {e.prefix}
+                            </span>{" "}
+                            <span className="text-slate-400">[{e.operator}]</span>
+                            {e.service && (
+                              <span className="text-slate-500">
+                                {" "}&mdash; {e.service}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </DebugSection>
+            </>
+          )}
+
+          {/* Per-number match details */}
+          {results?.phones?.length > 0 && (
+            <DebugSection title="3. Matching per numero">
+              {results.phones.map((phone: any, i: number) => {
+                const dbg = phone.checks.premiumCheck?.debug;
+                return (
+                  <div
+                    key={i}
+                    className="py-1 border-b border-slate-100 last:border-0"
+                  >
+                    <span className="text-indigo-600">{phone.number}</span>
+                    {dbg ? (
+                      <>
+                        <span className="text-slate-400">
+                          {" "}clean="{dbg.cleanInput}"
+                        </span>
+                        <span className="text-slate-400">
+                          {" "}db={dbg.totalEntries} entries
+                        </span>
+                        <span
+                          className={
+                            dbg.matchStrategy === "none"
+                              ? "text-red-500"
+                              : "text-emerald-600"
+                          }
+                        >
+                          {" "}strategy={dbg.matchStrategy}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400"> (no debug info)</span>
+                    )}
+                    {phone.checks.premiumCheck?.isPremium && (
+                      <span className="text-red-600 font-bold"> PREMIUM</span>
+                    )}
+                  </div>
+                );
+              })}
+            </DebugSection>
+          )}
+
+          {!debugData && (
+            <p className="text-slate-400 py-2">
+              Nessun dato di debug disponibile.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DebugSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="pt-3">
+      <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        {title}
+      </h4>
+      {children}
     </div>
   );
 }
