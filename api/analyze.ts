@@ -19,10 +19,7 @@ export default async function handler(
 ) {
   // GET = health-check (useful for debugging deploy issues)
   if (req.method === "GET") {
-    return res.json({
-      status: "ok",
-      env: { hasGeminiKey: !!process.env.GEMINI_API_KEY },
-    });
+    return res.json({ status: "ok" });
   }
 
   if (req.method !== "POST") {
