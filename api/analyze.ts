@@ -1,26 +1,56 @@
-import express from "express";
-import { createServer as createViteServer } from "vite";
-import { extractEntities } from "./lib/extractor.js";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { extractEntities } from "../lib/extractor.js";
 import {
   checkWindTre,
   checkAgcom,
   checkTellows,
-} from "./lib/phone-checks.js";
+  type WindTreResult,
+  type AgcomResult,
+  type TellowsResult,
+} from "../lib/phone-checks.js";
 import {
   checkUrlVoid,
   checkSucuri,
   checkSafeBrowsing,
-} from "./lib/url-checks.js";
+  type UrlVoidResult,
+  type SucuriResult,
+  type SafeBrowsingResult,
+} from "../lib/url-checks.js";
 
-const app = express();
-const PORT = 3000;
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-app.use(express.json());
+interface PhoneCheckResult {
+  number: string;
+  checks: {
+    windTrePremium: WindTreResult;
+    agcom?: AgcomResult;
+    tellows?: TellowsResult;
+  };
+}
 
-app.post("/api/analyze", async (req, res) => {
+interface UrlCheckResult {
+  url: string;
+  checks: {
+    urlVoid: UrlVoidResult;
+    sucuri: SucuriResult;
+    safeBrowsing: SafeBrowsingResult;
+  };
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────────
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  // Only accept POST
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
   try {
     const { text } = req.body;
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return res.status(400).json({ error: "Il campo 'text' è obbligatorio" });
     }
 
@@ -29,11 +59,13 @@ app.post("/api/analyze", async (req, res) => {
     const { phoneNumbers, urls } = extracted;
 
     // 2. Phone number checks (sequential: WindTre → AGCOM → Tellows)
-    const phoneResults = [];
+    const phoneResults: PhoneCheckResult[] = [];
     for (const num of phoneNumbers) {
-      const result: any = {
+      const result: PhoneCheckResult = {
         number: num,
-        checks: { windTrePremium: { isPremium: false } },
+        checks: {
+          windTrePremium: { isPremium: false },
+        },
       };
 
       // Step 1: WindTre premium
@@ -56,7 +88,7 @@ app.post("/api/analyze", async (req, res) => {
     }
 
     // 3. URL checks (all three in parallel for each URL)
-    const urlResults = await Promise.all(
+    const urlResults: UrlCheckResult[] = await Promise.all(
       urls.map(async (url: string) => {
         const [urlVoid, sucuri, safeBrowsing] = await Promise.all([
           checkUrlVoid(url),
@@ -70,7 +102,7 @@ app.post("/api/analyze", async (req, res) => {
       })
     );
 
-    res.json({
+    return res.json({
       extracted: { phoneNumbers, urls },
       analysis: {
         phones: phoneResults,
@@ -79,29 +111,8 @@ app.post("/api/analyze", async (req, res) => {
     });
   } catch (error: any) {
     console.error("Analysis error:", error);
-    res
+    return res
       .status(500)
       .json({ error: error.message || "Errore interno del server" });
   }
-});
-
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static("dist"));
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
 }
-
-startServer().catch((err) => {
-  console.error("Failed to start server:", err);
-  process.exit(1);
-});
