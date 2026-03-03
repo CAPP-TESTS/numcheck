@@ -192,8 +192,32 @@ function extractPremiumEntries(
 
 // ─── Resilient PDF text extraction (v1 & v2 compatible) ─────────────────────
 
+let pdfjsWorkerReady = false;
+
+/**
+ * Pre-load the pdfjs worker module and register it on globalThis.
+ * pdfjs-dist v5 checks globalThis.pdfjsWorker.WorkerMessageHandler first;
+ * if found it skips the dynamic import() of pdf.worker.mjs that fails on
+ * Vercel because the file isn't traced by the serverless bundler.
+ */
+async function ensurePdfjsWorker(): Promise<void> {
+  if (pdfjsWorkerReady) return;
+  try {
+    const workerModule = await import(
+      /* @vite-ignore */
+      "pdfjs-dist/legacy/build/pdf.worker.mjs"
+    );
+    (globalThis as any).pdfjsWorker = workerModule;
+    pdfjsWorkerReady = true;
+  } catch (e) {
+    console.warn("Could not pre-load pdfjs worker:", e);
+  }
+}
+
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
+    // Must run before pdf-parse is imported
+    await ensurePdfjsWorker();
     const mod: any = await import("pdf-parse");
 
     // v2 class-based API
