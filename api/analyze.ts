@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { extractEntities } from "../lib/extractor.js";
 import {
-  checkWindTre,
+  checkPremiumNumber,
   checkAgcom,
   checkTellows,
 } from "../lib/phone-checks.js";
@@ -32,22 +32,22 @@ export default async function handler(
       return res.status(400).json({ error: "Il campo 'text' è obbligatorio" });
     }
 
-    // 1. Extract phone numbers and URLs using Gemini
+    // 1. Extract phone numbers and URLs
     const extracted = await extractEntities(text);
     const { phoneNumbers, urls } = extracted;
 
-    // 2. Phone number checks (sequential: WindTre → AGCOM → Tellows)
+    // 2. Phone number checks (sequential: Premium → AGCOM → Tellows)
     const phoneResults: any[] = [];
     for (const num of phoneNumbers) {
       const result: any = {
         number: num,
-        checks: { windTrePremium: { isPremium: false } },
+        checks: { premiumCheck: { isPremium: false } },
       };
 
-      const windtre = await checkWindTre(num);
-      result.checks.windTrePremium = windtre;
+      const premium = await checkPremiumNumber(num);
+      result.checks.premiumCheck = premium;
 
-      if (!windtre.isPremium) {
+      if (!premium.isPremium) {
         const agcom = await checkAgcom(num);
         result.checks.agcom = agcom;
 
