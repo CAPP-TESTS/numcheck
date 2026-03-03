@@ -11,8 +11,21 @@ export interface ExtractedEntities {
 export async function extractEntities(
   text: string
 ): Promise<ExtractedEntities> {
+  const phoneNumbers = extractPhoneNumbers(text);
+
+  // Also look for short premium-rate arcs that the main regex misses
+  // (e.g. "894894", "894 894", "892021")
+  const arcs = extractPremiumArcs(text);
+  const phoneSet = new Set(phoneNumbers);
+  for (const arc of arcs) {
+    if (!phoneSet.has(arc)) {
+      phoneSet.add(arc);
+      phoneNumbers.push(arc);
+    }
+  }
+
   return {
-    phoneNumbers: extractPhoneNumbers(text),
+    phoneNumbers,
     urls: extractUrls(text),
   };
 }
@@ -52,6 +65,42 @@ function extractPhoneNumbers(text: string): string[] {
       seen.add(digits);
       results.push(digits);
     }
+  }
+
+  return results;
+}
+
+// ─── Premium-rate arc recognition ───────────────────────────────────────────
+
+/** Known Italian premium / special-rate number prefixes (first 3 digits). */
+const PREMIUM_PREFIXES = [
+  "199", "899", "895", "892", "893", "894", "891",
+  "166", "144", "163", "164", "709", "178", "488",
+  "840", "841", "848", "047",
+];
+
+/**
+ * Finds short digit sequences that start with known premium prefixes.
+ * These are number arcs (e.g. "894894", "894 894", "892.021") that the
+ * main phone regex rejects because they have too few digits for a
+ * standard phone number format.
+ */
+function extractPremiumArcs(text: string): string[] {
+  // Match 3-10 digit sequences, possibly with single spaces / dots / dashes
+  // between digit groups (e.g. "894 894", "892.021", "895-0")
+  const ARC_RE = /(?<!\d)\d{3}(?:[\s.\-]?\d{1,7})*(?!\d)/g;
+  const matches = text.match(ARC_RE) || [];
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  for (const raw of matches) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 3 || digits.length > 10) continue;
+    if (!PREMIUM_PREFIXES.some((p) => digits.startsWith(p))) continue;
+    if (seen.has(digits)) continue;
+    seen.add(digits);
+    // Normalise with +39 prefix so they flow through the standard pipeline
+    results.push("+39" + digits);
   }
 
   return results;

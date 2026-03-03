@@ -5,6 +5,7 @@ import {
   checkPremiumNumber,
   checkAgcom,
   checkTellows,
+  getPremiumDbStats,
 } from "./lib/phone-checks";
 import {
   checkUrlVoid,
@@ -70,11 +71,20 @@ app.post("/api/analyze", async (req, res) => {
       })
     );
 
+    // 4. Gather debug info
+    const dbStats = await getPremiumDbStats();
+
     res.json({
       extracted: { phoneNumbers, urls },
       analysis: {
         phones: phoneResults,
         urls: urlResults,
+      },
+      debug: {
+        inputSnippet: text.substring(0, 200),
+        extractedPhoneNumbers: phoneNumbers,
+        extractedUrls: urls,
+        premiumDb: dbStats,
       },
     });
   } catch (error: any) {

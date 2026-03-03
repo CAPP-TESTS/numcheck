@@ -4,6 +4,7 @@ import {
   checkPremiumNumber,
   checkAgcom,
   checkTellows,
+  getPremiumDbStats,
 } from "../lib/phone-checks.js";
 import {
   checkUrlVoid,
@@ -72,9 +73,18 @@ export default async function handler(
       })
     );
 
+    // 4. Gather debug info
+    const dbStats = await getPremiumDbStats();
+
     return res.json({
       extracted: { phoneNumbers, urls },
       analysis: { phones: phoneResults, urls: urlResults },
+      debug: {
+        inputSnippet: text.substring(0, 200),
+        extractedPhoneNumbers: phoneNumbers,
+        extractedUrls: urls,
+        premiumDb: dbStats,
+      },
     });
   } catch (error: any) {
     console.error("Analysis error:", error);
