@@ -35,7 +35,7 @@ app.post("/api/analyze", async (req, res) => {
       phoneNumbers.map(async (num: string) => {
         const [premium, agcom, tellows] = await Promise.all([
           checkPremiumNumber(num),
-          checkAgcom(num),
+          checkAgcom(num, text),
           checkTellows(num),
         ]);
         return {

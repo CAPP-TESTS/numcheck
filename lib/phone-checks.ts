@@ -30,13 +30,21 @@ export interface PremiumCheckResult {
 
 export interface AgcomResult {
   found: boolean;
+  /** "verde" = match + parole dell'impresa nel messaggio, "giallo" = match senza corrispondenza, "grigio" = nessun risultato */
+  alert?: "verde" | "giallo" | "grigio";
+  /** Nome dell'impresa registrata nel ROC */
+  companyName?: string;
   data?: Record<string, unknown>;
 }
 
 export interface TellowsResult {
   found: boolean;
+  /** "rosso" se contiene "Truffa" in nome/tipo chiamata, "grigio" altrimenti */
+  alert?: "rosso" | "grigio";
   score?: string;
   name?: string;
+  /** Tipo di chiamata riportato da Tellows */
+  callType?: string;
   details?: string;
 }
 
@@ -427,34 +435,67 @@ export async function getPremiumDbStats(): Promise<PremiumDbStats> {
 
 // ─── AGCOM ROC call-center registry ──────────────────────────────────────────
 
-export async function checkAgcom(number: string): Promise<AgcomResult> {
+/**
+ * Verifica se il numero è registrato nel ROC AGCOM come call center.
+ * @param messageText - testo originale del messaggio, usato per confrontare
+ *   parole del nome dell'impresa → avviso verde (match) / giallo (no match).
+ */
+export async function checkAgcom(
+  number: string,
+  messageText?: string
+): Promise<AgcomResult> {
   try {
     const clean = normalizeNumber(number);
     const res = await fetch(
       `https://datiroc.agcom.it/api/getNumerazioniCallCenter/${clean}`
     );
-    if (!res.ok) return { found: false };
+    if (!res.ok) return { found: false, alert: "grigio" };
 
-    const text = await res.text();
-    if (!text || !text.trim()) return { found: false };
+    const body = await res.text();
+    if (!body || !body.trim()) return { found: false, alert: "grigio" };
 
     // The API returns JSON when the number is registered, nothing otherwise
-    if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
-      const data = JSON.parse(text);
+    if (body.trim().startsWith("{") || body.trim().startsWith("[")) {
+      const data = JSON.parse(body);
       // Check both object and array responses
-      if (Array.isArray(data) && data.length === 0) return { found: false };
+      if (Array.isArray(data) && data.length === 0)
+        return { found: false, alert: "grigio" };
       if (
         typeof data === "object" &&
         data !== null &&
         Object.keys(data).length > 0
       ) {
-        return { found: true, data };
+        // Extract company name from API response
+        const record = Array.isArray(data) ? data[0] : data;
+        const companyName: string =
+          record.nomeImpresa ||
+          record.nome_impresa ||
+          record.ragioneSociale ||
+          record.ragione_sociale ||
+          record.denominazione ||
+          "";
+
+        // Determine alert level: verde if message contains words from the company name
+        let alert: "verde" | "giallo" = "giallo";
+        if (companyName && messageText) {
+          const msgLower = messageText.toLowerCase();
+          // Split company name into significant words (3+ chars to skip "S.r.l.", "di", etc.)
+          const words = companyName
+            .toLowerCase()
+            .split(/[\s.,;:'"()\-/]+/)
+            .filter((w) => w.length >= 3);
+          if (words.some((w) => msgLower.includes(w))) {
+            alert = "verde";
+          }
+        }
+
+        return { found: true, alert, companyName: companyName || undefined, data };
       }
     }
   } catch (e) {
     console.error("AGCOM check error:", e);
   }
-  return { found: false };
+  return { found: false, alert: "grigio" };
 }
 
 // ─── Tellows reputation lookup ───────────────────────────────────────────────
@@ -497,6 +538,12 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
       $(".caller_name").first().text().trim() ||
       "";
 
+    // Extract call type (Tipo di Chiamata)
+    const callType =
+      $("a[href*='/calltype/']").first().text().trim() ||
+      $(".calltype_name").first().text().trim() ||
+      "";
+
     // Extract comment / search count details
     const details =
       $(".comments_count, .search_count, div:contains('richieste')")
@@ -507,10 +554,17 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
         .substring(0, 200) || "";
 
     const hasData = !!(score || name);
+
+    // Alert: rosso se "truffa" appare nel nome o tipo di chiamata
+    const truffaRe = /truffa/i;
+    const isTruffa = truffaRe.test(name) || truffaRe.test(callType);
+
     return {
       found: hasData,
+      alert: hasData ? (isTruffa ? "rosso" : "grigio") : "grigio",
       score: score || "N/A",
       name: name || "Sconosciuto",
+      callType: callType || undefined,
       details: details || undefined,
     };
   } catch (e) {

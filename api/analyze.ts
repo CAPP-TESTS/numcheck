@@ -43,7 +43,7 @@ export default async function handler(
       phoneNumbers.map(async (num: string) => {
         const [premium, agcom, tellows] = await Promise.all([
           checkPremiumNumber(num),
-          checkAgcom(num),
+          checkAgcom(num, text),
           checkTellows(num),
         ]);
         return {
