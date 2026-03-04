@@ -468,7 +468,7 @@ export async function checkAgcom(
         // Extract company name from API response
         const record = Array.isArray(data) ? data[0] : data;
         const companyName: string =
-          record.nomeImpresa ||
+          record.impresa ||
           record.nome_impresa ||
           record.ragioneSociale ||
           record.ragione_sociale ||
