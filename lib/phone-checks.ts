@@ -502,14 +502,10 @@ export async function checkAgcom(
 
 export async function checkTellows(number: string): Promise<TellowsResult> {
   try {
-    let tellowsNum = normalizeNumber(number);
-    // Tellows URL richiede il prefisso 39 per i numeri italiani
-    if (!tellowsNum.startsWith("39") && tellowsNum.length <= 10) {
-      tellowsNum = "39" + tellowsNum;
-    }
+    const tellowsNum = normalizeNumber(number);
 
     const res = await fetch(
-      `https://www.tellows.it/num/%2B${tellowsNum}`,
+      `https://www.tellows.it/basic/num/${tellowsNum}?json=1`,
       {
         headers: {
           "User-Agent":
@@ -520,49 +516,44 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
 
     if (!res.ok) return { found: false };
 
-    const html = await res.text();
-    const $ = cheerio.load(html);
+    // Response may end with "Partner Data not correct" after the JSON
+    const raw = await res.text();
+    const jsonStr = raw.replace(/}[^}]*$/, "}");
 
-    // Extract score - try multiple selectors for robustness
-    const score =
-      $("#tellowsscore").text().trim() ||
-      $(".score_result").text().trim() ||
-      $("img[alt*='tellows']")
-        .attr("alt")
-        ?.replace(/[^\d]/g, "") ||
-      "";
+    let json: any;
+    try {
+      json = JSON.parse(jsonStr);
+    } catch {
+      return { found: false };
+    }
 
-    // Extract caller ID text from <span class="callerId">
-    const callerId = $("span.callerId").first().text().trim();
+    const t = json?.tellows;
+    if (!t) return { found: false };
 
-    // Fallback: try other selectors for caller name
-    const name =
-      callerId ||
-      $("a[href*='/caller/']").first().text().trim() ||
-      $(".caller_name").first().text().trim() ||
-      "";
+    const score = t.score || "";
+    const name = t.location || "";
 
-    // Extract comment / search count details
-    const details =
-      $(".comments_count, .search_count, div:contains('richieste')")
-        .last()
-        .text()
-        .trim()
-        .replace(/\s+/g, " ")
-        .substring(0, 200) || "";
+    // Check callerTypes for "truffa"
+    const callers: any[] =
+      t.callerTypes?.caller
+        ? Array.isArray(t.callerTypes.caller)
+          ? t.callerTypes.caller
+          : [t.callerTypes.caller]
+        : [];
+    const isTruffa = callers.some((c: any) =>
+      /truffa/i.test(c.name || "")
+    );
 
-    const hasData = !!(score || name);
-
-    // Alert: rosso se "truffa" o "sms truffa" appare nel callerId
-    const isTruffa = /truffa/i.test(callerId);
+    // Build callType summary from caller names
+    const callType = callers.map((c: any) => c.name).filter(Boolean).join(", ") || undefined;
 
     return {
-      found: hasData,
-      alert: hasData ? (isTruffa ? "rosso" : "grigio") : "grigio",
+      found: true,
+      alert: isTruffa ? "rosso" : "grigio",
       score: score || "N/A",
       name: name || "Sconosciuto",
-      callType: callerId || undefined,
-      details: details || undefined,
+      callType,
+      details: t.searches ? `${t.searches} ricerche, ${t.comments || 0} commenti` : undefined,
     };
   } catch (e) {
     console.error("Tellows check error:", e);
