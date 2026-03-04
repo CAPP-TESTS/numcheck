@@ -406,21 +406,30 @@ function PhoneCard({ phone }: { phone: any }) {
         {agcom && (
           <CheckRow
             icon={
-              agcom.found ? (
-                <Info className="w-5 h-5 text-amber-500 shrink-0" />
+              agcom.alert === "verde" ? (
+                <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
+              ) : agcom.alert === "giallo" ? (
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
               ) : (
-                <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
+                <Info className="w-5 h-5 text-slate-400 shrink-0" />
               )
             }
             label="AGCOM ROC"
             value={
-              agcom.found ? (
-                <span className="text-amber-700">
-                  Registrato come Call Center.
+              agcom.alert === "verde" ? (
+                <span className="text-emerald-700">
+                  Avviso verde &mdash; Call Center registrato: {agcom.companyName}
+                </span>
+              ) : agcom.alert === "giallo" ? (
+                <span className="text-amber-700 font-medium">
+                  Avviso giallo &mdash; Call Center registrato: {agcom.companyName || "N/A"}
+                  <span className="font-normal text-amber-600">
+                    {" "}(impresa non menzionata nel messaggio)
+                  </span>
                 </span>
               ) : (
-                <span className="text-slate-600">
-                  Non registrato nel ROC.
+                <span className="text-slate-500">
+                  Avviso grigio &mdash; Non registrato nel ROC.
                 </span>
               )
             }
@@ -431,27 +440,42 @@ function PhoneCard({ phone }: { phone: any }) {
         {tellows && (
           <CheckRow
             icon={
-              tellows.found ? (
-                <Info className="w-5 h-5 text-indigo-500 shrink-0" />
+              tellows.alert === "rosso" ? (
+                <ShieldAlert className="w-5 h-5 text-red-500 shrink-0" />
+              ) : tellows.found ? (
+                <Info className="w-5 h-5 text-slate-400 shrink-0" />
               ) : (
-                <CheckCircle className="w-5 h-5 text-slate-400 shrink-0" />
+                <Info className="w-5 h-5 text-slate-400 shrink-0" />
               )
             }
             label="Tellows"
             value={
-              tellows.found ? (
-                <span className="text-slate-700">
-                  Score: {tellows.score} | {tellows.name}
-                  {tellows.details && (
+              tellows.alert === "rosso" ? (
+                <span className="text-red-600 font-medium">
+                  Avviso rosso &mdash; Truffa segnalata
+                  {tellows.name && tellows.name !== "Sconosciuto" && (
+                    <span className="font-normal text-red-500">
+                      {" "}({tellows.name})
+                    </span>
+                  )}
+                  {tellows.callType && (
+                    <span className="font-normal text-red-500">
+                      {" "}&mdash; {tellows.callType}
+                    </span>
+                  )}
+                </span>
+              ) : tellows.found ? (
+                <span className="text-slate-600">
+                  Avviso grigio &mdash; Score: {tellows.score} | {tellows.name}
+                  {tellows.callType && (
                     <span className="text-slate-500">
-                      {" "}
-                      ({tellows.details})
+                      {" "}&mdash; {tellows.callType}
                     </span>
                   )}
                 </span>
               ) : (
                 <span className="text-slate-500">
-                  Nessuna informazione trovata.
+                  Avviso grigio &mdash; Nessuna informazione trovata.
                 </span>
               )
             }
