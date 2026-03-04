@@ -298,6 +298,87 @@ async function fetchWindTrePdfLinks(): Promise<string[]> {
   return pdfLinks.slice(0, 4);
 }
 
+/**
+ * Scrape TIM Business non-geographic numbers page.
+ * Numbers may contain dots and letters (e.g. "894.747.XY", "893473XX").
+ * We strip dots and trailing letters to get the numeric prefix.
+ */
+async function fetchTimBusinessEntries(): Promise<PremiumEntry[]> {
+  try {
+    const res = await fetch(
+      "https://timbusiness.tim.it/assistenza1/consumi/Tariffe-Base/fisso/numerazioni-non-geografiche",
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      }
+    );
+    if (!res.ok) {
+      console.error(`TIM Business fetch failed (${res.status})`);
+      return [];
+    }
+
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    const entries: PremiumEntry[] = [];
+    const seen = new Set<string>();
+
+    // Scan all table cells and list items for number-like tokens
+    $("td, li, p, span, div").each((_, el) => {
+      const text = $(el).text().trim();
+      if (!text) return;
+
+      // Match patterns like: 894.222, 894.747.XY, 893473XX, 199, 892.xxx
+      // Numbers may have dots as separators and trailing letters
+      const tokens = text.match(/\b\d{3}(?:[.\s]?\d{1,3})*(?:[.\s]?[A-Za-z]{1,3})?\b/g);
+      if (!tokens) return;
+
+      for (const raw of tokens) {
+        // Remove dots and letters → keep only digits
+        const digits = raw.replace(/[^0-9]/g, "");
+        if (digits.length < 3 || digits.length > 10) continue;
+        if (!isPotentialPremiumNumber(digits)) continue;
+        if (seen.has(digits)) continue;
+        seen.add(digits);
+
+        // Try to get context from the row / surrounding text
+        const row = $(el).closest("tr");
+        const context = row.length
+          ? row.text().trim().replace(/\s+/g, " ").substring(0, 200)
+          : text.replace(/\s+/g, " ").substring(0, 200);
+
+        // Get service description from sibling cells
+        let service = "";
+        if (row.length) {
+          const cells = row.find("td");
+          const otherCells: string[] = [];
+          cells.each((_, td) => {
+            const ct = $(td).text().trim();
+            if (ct && ct !== raw && /[a-zA-ZàèéìòùÀÈÉÌÒÙ]/.test(ct)) {
+              otherCells.push(ct);
+            }
+          });
+          service = otherCells.join(" – ");
+        }
+
+        entries.push({
+          prefix: digits,
+          service,
+          context,
+          operator: "TIM Business",
+        });
+      }
+    });
+
+    return entries;
+  } catch (e) {
+    console.error("TIM Business scrape error:", e);
+    return [];
+  }
+}
+
 /** Download one PDF, extract text and premium entries. */
 async function parsePdf(
   url: string,
@@ -321,21 +402,24 @@ async function parsePdf(
   }
 }
 
-/** Load and merge premium-number data from both WindTre and Iliad. */
+/** Load and merge premium-number data from WindTre, Iliad, and TIM Business. */
 async function loadPremiumData(): Promise<PremiumData> {
   if (cachedData) return cachedData;
 
-  // Fetch WindTre PDF links + parse all PDFs in parallel
-  const windTreLinks = await fetchWindTrePdfLinks();
+  // Fetch WindTre PDF links + parse all PDFs + TIM Business HTML in parallel
+  const [windTreLinks, timEntries] = await Promise.all([
+    fetchWindTrePdfLinks(),
+    fetchTimBusinessEntries(),
+  ]);
 
-  const allJobs = [
+  const pdfJobs = [
     ...windTreLinks.map((url) => parsePdf(url, "WindTre")),
     ...ILIAD_PDF_URLS.map((url) => parsePdf(url, "Iliad")),
   ];
 
-  const results = await Promise.all(allJobs);
+  const results = await Promise.all(pdfJobs);
 
-  const allEntries: PremiumEntry[] = [];
+  const allEntries: PremiumEntry[] = [...timEntries];
   let allText = "";
   for (const r of results) {
     allEntries.push(...r.entries);
