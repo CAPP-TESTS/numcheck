@@ -532,16 +532,14 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
         ?.replace(/[^\d]/g, "") ||
       "";
 
-    // Extract caller name
+    // Extract caller ID text from <span class="callerId">
+    const callerId = $("span.callerId").first().text().trim();
+
+    // Fallback: try other selectors for caller name
     const name =
+      callerId ||
       $("a[href*='/caller/']").first().text().trim() ||
       $(".caller_name").first().text().trim() ||
-      "";
-
-    // Extract call type (Tipo di Chiamata)
-    const callType =
-      $("a[href*='/calltype/']").first().text().trim() ||
-      $(".calltype_name").first().text().trim() ||
       "";
 
     // Extract comment / search count details
@@ -555,16 +553,15 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
 
     const hasData = !!(score || name);
 
-    // Alert: rosso se "truffa" appare nel nome o tipo di chiamata
-    const truffaRe = /truffa/i;
-    const isTruffa = truffaRe.test(name) || truffaRe.test(callType);
+    // Alert: rosso se "truffa" o "sms truffa" appare nel callerId
+    const isTruffa = /truffa/i.test(callerId);
 
     return {
       found: hasData,
       alert: hasData ? (isTruffa ? "rosso" : "grigio") : "grigio",
       score: score || "N/A",
       name: name || "Sconosciuto",
-      callType: callType || undefined,
+      callType: callerId || undefined,
       details: details || undefined,
     };
   } catch (e) {
