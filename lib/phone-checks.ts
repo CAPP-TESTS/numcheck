@@ -508,8 +508,9 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
       tellowsNum = "39" + tellowsNum;
     }
 
+    // `https://www.tellows.it/num/%2B${tellowsNum}`,    
     const res = await fetch(
-      `https://www.tellows.it/num/%2B${tellowsNum}`,
+      `https://www.tellows.it/search/?number={tellowsNum}`,
       {
         headers: {
           "User-Agent":
