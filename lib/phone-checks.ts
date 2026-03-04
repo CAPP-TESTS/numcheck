@@ -504,14 +504,14 @@ export async function checkTellows(number: string): Promise<TellowsResult> {
   try {
     let tellowsNum = normalizeNumber(number);
     // Tellows URL richiede il prefisso 39 per i numeri italiani
-    // if ((!tellowsNum.startsWith("+") || !tellowsNum.startsWith("00")) && tellowsNum.length <= 10) {
-    //  tellowsNum = "39" + tellowsNum;
+    if ((!tellowsNum.startsWith("+") || !tellowsNum.startsWith("00")) && tellowsNum.length <= 10) {
+       tellowsNum = "39" + tellowsNum;
     }
 
     // `https://www.tellows.it/num/%2B${tellowsNum}`,    
     // `https://www.tellows.it/search/?number={tellowsNum}`,
     const res = await fetch(
-      `https://www.tellows.it/search/?number={tellowsNum}`,
+      `https://www.tellows.it/num/%2B${tellowsNum}`,
       {
         headers: {
           "User-Agent":
